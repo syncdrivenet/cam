@@ -1,8 +1,7 @@
-annotated-types==0.7.0
+fastapi==0.115.12
+httptools==0.6.4
 paho-mqtt==2.1.0
 psutil==7.2.2
-pydantic==2.12.5
-pydantic_core==2.41.5
 python-dotenv==1.2.2
-typing-inspection==0.4.2
-typing_extensions==4.15.0
+uvicorn==0.34.2
+uvloop==0.21.0

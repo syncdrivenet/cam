@@ -1,165 +1,202 @@
-# Camera Node - Recording & Streaming
+# Camera Node
 
-Raspberry Pi camera node for distributed recording system with real-time accurate timestamps.
+Raspberry Pi camera node for distributed recording system.
 
-## Features
+## Status: MVP In Progress
 
-- **720p @ 30fps** recording with hardware H.264 encoding
-- **Real-time accurate timestamps** - dropped frames cause freeze, not speedup
-- **Gapless segment rotation** - 60-second segments with no frame loss at boundaries
-- **360p live streaming** - simultaneous low-res stream for monitoring
-- **VFR (Variable Frame Rate)** - preserves real-time sync via MKV timecodes
+### Done
+- [x] FastAPI + uvicorn HTTP server
+- [x] MQTT client (paho-mqtt)
+- [x] State machine (ready, preflight, recording, finishing, error)
+- [x] Preflight checks (camera, disk, network)
+- [x] REST: `/status`, `/preflight`
+- [x] MQTT: `start`, `stop`, `preflight` commands with ACK
+
+### Planned
+- [ ] Recording with picamera2
+- [ ] NTP sync start (schedule recording at future timestamp)
+- [ ] MJPEG live streaming `/stream`
+- [ ] VFR timestamps for real-time sync
 
 ## Architecture
 
 ```
-Sensor (OV5647)
-    │
-    ├──► main (1280x720) ──► H264Encoder (3Mbps) ──► Segments (.mkv)
-    │         ISP scaling
-    └──► lores (640x360) ──► MJPEGEncoder ──► HTTP Stream (:8080)
+                     ┌──────────────┐
+                     │  Controller  │
+                     └──────┬───────┘
+                            │
+              ┌─────────────┴─────────────┐
+              │                           │
+         REST (query)              MQTT (commands)
+              │                           │
+              │                    ┌──────┴──────┐
+              │                    │   Broker    │
+              │                    └──────┬──────┘
+              │                           │
+        ┌─────┴─────┬─────────────────────┼─────────────────┐
+        │           │                     │                 │
+        ▼           ▼                     ▼                 ▼
+   ┌─────────┐ ┌─────────┐           ┌─────────┐       ┌─────────┐
+   │  Cam 1  │ │  Cam 2  │           │  Cam 1  │       │  Cam 2  │
+   │  :8080  │ │  :8080  │           │  (mqtt) │       │  (mqtt) │
+   └─────────┘ └─────────┘           └─────────┘       └─────────┘
 ```
 
-## Requirements
+## Quick Start
 
 ```bash
-# Install dependencies
-sudo apt update
-sudo apt install -y python3-picamera2 mkvmerge ffmpeg
+# On Pi
+cd ~/cam
+pip install -r requirements.txt
 
-# Python packages (if needed)
-pip install flask
+# Create .env
+cat > .env << EOF
+HTTP_PORT=8080
+CLIENT_ID=cam1
+MQTT_BROKER=192.168.1.100
+MQTT_PORT=1883
+EOF
+
+python main.py
 ```
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `recorder.py` | Main recording + streaming script |
-| `test_10min.py` | Test script (5 min recording) |
-| `combine.py` | Combine segments into single video |
-
-## Usage
-
-### Recording Only
-```bash
-python3 test_10min.py
-```
-
-### Recording + Streaming
-```bash
-python3 recorder.py
-```
-- Recording: `/home/pi/recordings/<session>/`
-- Stream: `http://<pi-ip>:8080/stream`
-
-### Combine Segments
-```bash
-python3 combine.py
-```
+| `main.py` | Entry point |
+| `http_server.py` | FastAPI REST endpoints |
+| `mqtt_client.py` | MQTT command handlers |
+| `state.py` | Thread-safe state manager |
+| `preflight.py` | Camera, disk, network checks |
 
 ## Configuration
 
-Edit settings at top of `recorder.py`:
+| Var | Default | Description |
+|-----|---------|-------------|
+| `HTTP_PORT` | 8080 | REST API port |
+| `CLIENT_ID` | hostname | Node identifier |
+| `MQTT_BROKER` | localhost | Broker address |
+| `MQTT_PORT` | 1883 | Broker port |
 
-```python
-# Recording
-RECORD_RESOLUTION = (1280, 720)  # 720p
-RECORD_BITRATE = 3_000_000       # 3 Mbps
-SEGMENT_SECS = 60                # Segment duration
+## REST API
 
-# Streaming
-STREAM_RESOLUTION = (640, 360)   # 360p
-STREAM_QUALITY = 70              # MJPEG quality (1-100)
-STREAM_PORT = 8080
+### GET /
+```json
+{"node_id": "cam1", "status": "ok"}
 ```
 
-## How Real-Time Timestamps Work
+### GET /status
+```json
+{
+  "node_id": "cam1",
+  "state": "idle",
+  "error_msg": "",
+  "system": {"cpu": 12.5, "ram": 34.2, "disk_free": 28.5}
+}
+```
 
-### The Problem
-Standard video recording uses sequential PTS (Presentation Timestamps). If frames drop:
-- 100 frames recorded in 4 seconds (should be 120 at 30fps)
-- Video plays back in 3.33 seconds (100/30)
-- **Result: Video speeds up**
+### GET /preflight
+```json
+{
+  "node_id": "cam1",
+  "ok": true,
+  "checks": {
+    "camera": {"ok": true, "msg": "imx219 [4608x2592]"},
+    "disk": {"ok": true, "msg": "28.5GB free"},
+    "network": {"ok": true, "msg": "192.168.1.100:1883"}
+  }
+}
+```
 
-### The Solution
-We capture sensor timestamps for each frame and create VFR (Variable Frame Rate) video:
+### GET /docs
+Auto-generated FastAPI docs.
 
-1. **Record H.264** + capture `SensorTimestamp` metadata per frame
-2. **Write timecodes file** with real timestamps (ms):
-   ```
-   # timecode format v2
-   0
-   33
-   67
-   150    ← gap here (frames dropped)
-   183
-   ```
-3. **Remux with mkvmerge** to apply custom timestamps:
-   ```bash
-   mkvmerge -o output.mkv --timestamps 0:timecodes.txt input.h264
-   ```
+## MQTT
 
-### Result
-- Dropped frames → video freezes momentarily
-- Video duration matches wall clock time
-- Audio sync preserved (if added later)
+### Topics
 
-## Performance
+| Direction | Topic | Payload |
+|-----------|-------|---------|
+| Controller → Nodes | `cam/cmd/start` | `{id, start_at}` |
+| Controller → Nodes | `cam/cmd/stop` | `{id}` |
+| Controller → Nodes | `cam/cmd/preflight` | `{id}` |
+| Node → Controller | `cam/node/{id}/ack` | `{id, cmd, ok, error}` |
+| Node → Controller | `cam/node/{id}/state` | `{state, error}` |
 
-Tested on Raspberry Pi 4 (no active cooling):
+### Command Flow
 
-| Setting | Frame Rate | Drop Rate | File Size |
-|---------|------------|-----------|-----------|
-| 1080p @ 6Mbps | 29.7 fps | ~2% | ~450 MB/10min |
-| 720p @ 3Mbps | 29.9 fps | ~0.4% | ~225 MB/10min |
+```
+Controller                    Broker                     Node
+    │                           │                          │
+    │  cam/cmd/start            │                          │
+    │  {id:"x", start_at:123}   │                          │
+    ├──────────────────────────►│                          │
+    │                           ├─────────────────────────►│
+    │                           │                          │
+    │                           │  cam/node/cam1/ack       │
+    │                           │◄─────────────────────────┤
+    │◄──────────────────────────┤  {id:"x", ok:true}       │
+    │                           │                          │
+    │                           │  cam/node/cam1/state     │
+    │◄──────────────────────────┤  {state:"recording"}     │
+```
 
-**Recommendation:** Use 720p @ 3Mbps for best balance. Add heatsink for longer recordings.
+## State Machine
 
-## Output Format
+```
+boot
+  │
+  ▼
+[preflight] ──► pass ──► [idle]
+  │                         │
+  │                         │ cmd/start
+  │                         ▼
+  │                     [recording]
+  │                         │
+  │                         │ cmd/stop
+  │                         ▼
+  │                     [finishing] ──► [idle]
+  │
+  └──► fail ──► [error]
+```
 
-- **Container:** MKV (Matroska)
-- **Codec:** H.264 (hardware encoded via bcm2835-codec)
-- **Frame rate:** Variable (VFR), targeting 30fps
-- **Timestamps:** Real-time accurate via timecode file
+| State | Description |
+|-------|-------------|
+| `idle` | Idle, waiting for commands |
+| `preflight` | Running checks |
+| `recording` | Camera active |
+| `finishing` | Finalizing segment |
+| `error` | Check `error_msg` |
 
-### Converting to MP4
+## Testing
+
 ```bash
-ffmpeg -i input.mkv -c copy output.mp4
+# Terminal 1: Run broker
+mosquitto
+
+# Terminal 2: Run node
+python main.py
+
+# Terminal 3: Watch MQTT messages
+mosquitto_sub -t "cam/#" -v
+
+# Terminal 4: Send commands
+mosquitto_pub -t "cam/cmd/start" -m '{"id":"test1","start_at":1234567890}'
+mosquitto_pub -t "cam/cmd/stop" -m '{"id":"test2"}'
+
+# Terminal 5: REST
+curl http://localhost:8080/status
+curl http://localhost:8080/preflight
 ```
 
-## API (when using recorder.py)
+## Requirements
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/stream` | GET | MJPEG video stream |
-| `/status` | GET | Recording status JSON |
-| `/snapshot` | GET | Single JPEG frame |
+- Raspberry Pi OS (tested on Raspbian 13 trixie)
+- Python 3.11+
+- MQTT broker (mosquitto)
 
-## Troubleshooting
-
-### Camera not detected
 ```bash
-libcamera-hello --list-cameras
+sudo apt install -y python3-picamera2 mosquitto mosquitto-clients
+pip install -r requirements.txt
 ```
-
-### Low frame rate
-- Check CPU temperature: `vcgencmd measure_temp`
-- Add heatsink/fan
-- Reduce resolution to 720p
-
-### Stream not accessible
-- Check firewall: `sudo ufw allow 8080`
-- Verify IP: `hostname -I`
-
-## Integration with Controller
-
-The camera node connects to the controller via MQTT:
-
-```
-Subscribe: ctlr/command
-Publish:   ctlr/node/{node_id}/health
-           ctlr/node/{node_id}/ready
-```
-
-See controller README for full protocol specification.

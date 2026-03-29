@@ -30,10 +30,12 @@ def check_disk() -> tuple[bool, str]:
 
 def check_network() -> tuple[bool, str]:
     broker = os.getenv("MQTT_BROKER")
-    port   = int(os.getenv("MQTT_PORT"))
+    port = os.getenv("MQTT_PORT")
+    if not broker or not port:
+        return False, "MQTT_BROKER or MQTT_PORT not set"
     try:
-        socket.create_connection((broker, port), timeout=3)
-        return True, "ok"
+        socket.create_connection((broker, int(port)), timeout=3)
+        return True, f"{broker}:{port}"
     except Exception as e:
         return False, str(e)
 
@@ -55,6 +57,6 @@ def run_preflight() -> dict:
         state_manager.set_error(msg)
     else:
         print("[PREFLIGHT] All checks passed")
-        state_manager.set_ready()
+        state_manager.set_idle()
 
     return {k: {"ok": v[0], "msg": v[1]} for k, v in checks.items()}

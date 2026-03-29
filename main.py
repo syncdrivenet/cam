@@ -1,26 +1,29 @@
-# main.py
 import os
 import socket
-import threading
+import uvicorn
 from dotenv import load_dotenv
-from state import state_manager
-from preflight import run_preflight
-from http_server import start_http
 
 load_dotenv()
 
+from state import state_manager
+from preflight import run_preflight
+from http_server import app
+import mqtt_client
+
 HTTP_PORT = int(os.getenv("HTTP_PORT", 8080))
-CLIENT_ID = os.getenv("CLIENT_ID", socket.gethostname())
+NODE_ID = os.getenv("CLIENT_ID", socket.gethostname())
+
 
 if __name__ == "__main__":
-    print(f"[INFO] Starting {CLIENT_ID}")
+    print(f"[NODE] {NODE_ID} starting...")
 
-    # start HTTP server in background thread
-    threading.Thread(target=start_http, args=(HTTP_PORT,), daemon=True).start()
+    # connect to mqtt broker (background thread)
+    mqtt_client.start()
 
-    # run preflight on startup
+    # run preflight checks
     run_preflight()
-    print(f"[INFO] State: {state_manager.get_state()}")
+    print(f"[NODE] state: {state_manager.get_state()}")
 
-    # block main thread — MQTT will go here next
-    threading.Event().wait()
+    # start http server (blocks)
+    print(f"[HTTP] listening on :{HTTP_PORT}")
+    uvicorn.run(app, host="0.0.0.0", port=HTTP_PORT, log_level="warning")
