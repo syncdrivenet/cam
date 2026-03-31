@@ -41,24 +41,15 @@ def check_storage() -> dict:
     }
 
 
-def check_state() -> dict:
-    current = state.get()
-    ok = current["state"] != "error"
-    return {
-        "ok": ok,
-        "msg": "No errors" if ok else current["error"]
-    }
-
-
 def run_preflight() -> dict:
+    state.set_preflight()
     checks = {
         "camera": check_video0(),
         "ntp": check_ntp(),
         "storage": check_storage(),
-        "state": check_state(),
     }
 
     if not all(c["ok"] for c in checks.values()):
-        state.set_error("preflight failed")
+        print("[PREFLIGHT] Failed:", checks)
 
     return checks

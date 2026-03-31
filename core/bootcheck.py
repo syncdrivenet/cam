@@ -52,6 +52,6 @@ def run_bootcheck() -> dict:
     if all_ok:
         state.set_idle()
     else:
-        state.set_error("bootcheck failed")
+        print("[BOOTCHECK] Failed:", checks)
 
     return checks

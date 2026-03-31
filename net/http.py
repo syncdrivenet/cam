@@ -1,14 +1,23 @@
 import os
 import socket
 import shutil
+import time
 import psutil
 from fastapi import FastAPI
+from pydantic import BaseModel
+
 from core.state import state
 from core.preflight import run_preflight
+from media import recorder
 
 NODE_ID = os.getenv("CLIENT_ID", socket.gethostname())
 
-app = FastAPI(title="Camera Node", version="0.1.0")
+app = FastAPI(title="Camera Node")
+
+
+class StartRequest(BaseModel):
+    start_at: int
+    uuid: str
 
 
 @app.get("/status")
@@ -32,3 +41,29 @@ def preflight():
         "ok": all(c["ok"] for c in checks.values()),
         "checks": checks
     }
+
+
+@app.post("/record/start")
+def record_start(req: StartRequest):
+    if state.is_recording():
+        return {"ok": False, "error": "already recording"}
+    
+    now = int(time.time() * 1000)
+    if req.start_at < now:
+        return {"ok": False, "error": "start_at is in the past"}
+    
+    checks = run_preflight()
+    if not all(c["ok"] for c in checks.values()):
+        return {"ok": False, "error": "preflight failed", "checks": checks}
+    
+    recorder.start(req.start_at, req.uuid)
+    return {"ok": True, "uuid": req.uuid}
+
+
+@app.post("/record/stop")
+def record_stop():
+    if not state.is_recording():
+        return {"ok": False, "error": "not recording"}
+    
+    recorder.stop()
+    return {"ok": True}
