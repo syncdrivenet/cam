@@ -3,25 +3,19 @@ import socket
 import shutil
 import psutil
 from fastapi import FastAPI
-from state import state_manager
-from preflight import run_preflight
+from core.state import state
+from core.preflight import run_preflight
 
 NODE_ID = os.getenv("CLIENT_ID", socket.gethostname())
 
 app = FastAPI(title="Camera Node", version="0.1.0")
 
 
-@app.get("/")
-def root():
-    return {"node_id": NODE_ID, "status": "ok"}
-
-
 @app.get("/status")
 def status():
     return {
         "node_id": NODE_ID,
-        "state": state_manager.get_state(),
-        "error_msg": state_manager.get_error(),
+        **state.get(),
         "system": {
             "cpu": psutil.cpu_percent(interval=0.5),
             "ram": psutil.virtual_memory().percent,
