@@ -35,10 +35,10 @@ def status():
 
 @app.get("/preflight")
 def preflight():
-    checks = run_preflight()
+    success, checks = run_preflight()
     return {
         "node_id": NODE_ID,
-        "ok": all(c["ok"] for c in checks.values()),
+        "ready": success,
         "checks": checks
     }
 
@@ -46,24 +46,20 @@ def preflight():
 @app.post("/record/start")
 def record_start(req: StartRequest):
     if state.is_recording():
-        return {"ok": False, "error": "already recording"}
+        return {"ready": False, "error": "already recording"}
     
     now = int(time.time() * 1000)
     if req.start_at < now:
-        return {"ok": False, "error": "start_at is in the past"}
-    
-    checks = run_preflight()
-    if not all(c["ok"] for c in checks.values()):
-        return {"ok": False, "error": "preflight failed", "checks": checks}
+        return {"ready": False, "error": "start_at is in the past"}
     
     recorder.start(req.start_at, req.uuid)
-    return {"ok": True, "uuid": req.uuid}
+    return {"ready": True, "uuid": req.uuid}
 
 
 @app.post("/record/stop")
 def record_stop():
     if not state.is_recording():
-        return {"ok": False, "error": "not recording"}
+        return {"ready": False, "error": "not recording"}
     
     recorder.stop()
-    return {"ok": True}
+    return {"ready": True}

@@ -44,7 +44,7 @@ def run_bootcheck() -> dict:
     state.set_preflight()
     
     checks = {
-        "ntp": check_ntp_sync(),
+        #"ntp": check_ntp_sync(),
         "camera": check_camera_device(),
     }
 
@@ -53,5 +53,6 @@ def run_bootcheck() -> dict:
         state.set_idle()
     else:
         print("[BOOTCHECK] Failed:", checks)
+
 
     return checks

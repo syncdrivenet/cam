@@ -7,6 +7,7 @@ class StateManager:
         self._segment = None
         self._stop_event = threading.Event()
         self._cleanup_event = threading.Event()
+        self._error_msg = ""
 
     # ------------------ STATE SETTERS ------------------
     def set_idle(self):
@@ -26,6 +27,11 @@ class StateManager:
             self._segment = 0
             self._stop_event.clear()
             self._cleanup_event.clear()
+
+    def set_error(self, msg):
+        with self._lock:
+            self._state = "error"
+            self._error_msg = msg
 
     def set_segment(self, n: int):
         with self._lock:
