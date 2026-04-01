@@ -9,7 +9,6 @@ load_dotenv()
 from core.state import state
 from core.bootcheck import run_bootcheck
 from net.http import app
-from net import mqtt
 
 HTTP_PORT = int(os.getenv("HTTP_PORT", 8080))
 NODE_ID = os.getenv("CLIENT_ID", socket.gethostname())
@@ -18,8 +17,6 @@ BOOTCHECK_INTERVAL = int(os.getenv("BOOTCHECK_INTERVAL", 5))
 
 if __name__ == "__main__":
     print(f"[NODE] {NODE_ID} starting...")
-
-    mqtt.start()
 
     while True:
         print("[NODE] Running boot checks...")
