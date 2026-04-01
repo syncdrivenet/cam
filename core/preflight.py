@@ -1,20 +1,23 @@
 import os
 import shutil
 import subprocess
+
 from core.state import state
 
 MIN_DISK_GB = float(os.getenv("MIN_DISK_GB", 1.0))
 
 
-def check_video0() -> dict:
+def check_camera() -> dict:
+    """Check if camera device is available."""
     exists = os.path.exists("/dev/video0")
     return {
-        "ready": True,
+        "ok": exists,
         "msg": "/dev/video0 present" if exists else "/dev/video0 not found"
     }
 
 
 def check_ntp() -> dict:
+    """Check if NTP is synchronized."""
     try:
         result = subprocess.run(
             ["timedatectl", "show", "--property=NTPSynchronized"],
@@ -24,40 +27,46 @@ def check_ntp() -> dict:
         )
         synced = "yes" in result.stdout.lower()
         return {
-            "ready": True,
+            "ok": synced,
             "msg": "NTP synced" if synced else "NTP not synced"
         }
     except Exception as e:
-        return {"ready": False, "msg": str(e)}
+        return {"ok": False, "msg": str(e)}
 
 
 def check_storage() -> dict:
+    """Check if sufficient disk space is available."""
     disk = shutil.disk_usage("/")
     free_gb = disk.free / (1024**3)
     ok = free_gb >= MIN_DISK_GB
     return {
-        "ready": True,
+        "ok": ok,
         "msg": f"{free_gb:.1f}GB free" if ok else f"Low disk: {free_gb:.1f}GB"
     }
 
 
-def run_preflight() -> tuple[bool,dict]:
-    checks = {}
-    stateCheck = state.get()["state"]
-    if stateCheck != "idle":
-        print("[PREFLIGHT] Failed: not idle")
-        return False, {"state": stateCheck}
+def check_state() -> dict:
+    """Check if state is idle."""
+    current = state.get()["state"]
+    ok = current == "idle"
+    return {
+        "ok": ok,
+        "msg": "idle" if ok else f"state is {current}"
+    }
 
+
+def run_preflight() -> tuple[bool, dict]:
+    """Run all preflight checks. Read-only, does not modify state."""
     checks = {
-        "camera": check_video0(),
+        "camera": check_camera(),
         "ntp": check_ntp(),
         "storage": check_storage(),
-        "state": stateCheck,
+        "state": check_state(),
     }
-    success = all(c.get("ready", False) for c in checks.values() if isinstance(c, dict))
+
+    success = all(c.get("ok", False) for c in checks.values())
 
     if not success:
-        print("[PREFLIGHT] Failed:", checks)
+        print(f"[PREFLIGHT] Failed: {checks}")
 
-    state.set_preflight()
     return success, checks

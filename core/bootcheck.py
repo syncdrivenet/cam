@@ -1,8 +1,8 @@
 import subprocess
-from core.state import state
 
 
 def check_ntp_sync() -> dict:
+    """Check if NTP is synchronized."""
     try:
         result = subprocess.run(
             ["timedatectl", "show", "--property=NTPSynchronized"],
@@ -20,6 +20,7 @@ def check_ntp_sync() -> dict:
 
 
 def check_camera_device() -> dict:
+    """Check if camera is detected."""
     try:
         result = subprocess.run(
             ["rpicam-hello", "--list-cameras"],
@@ -41,18 +42,8 @@ def check_camera_device() -> dict:
 
 
 def run_bootcheck() -> dict:
-    state.set_preflight()
-    
+    """Run boot checks. Returns dict of check results."""
     checks = {
-        #"ntp": check_ntp_sync(),
         "camera": check_camera_device(),
     }
-
-    all_ok = all(c["ok"] for c in checks.values())
-    if all_ok:
-        state.set_idle()
-    else:
-        print("[BOOTCHECK] Failed:", checks)
-
-
     return checks

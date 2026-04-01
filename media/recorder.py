@@ -1,13 +1,14 @@
 import os
 import time
-import queue
 import threading
+import queue
 from dotenv import load_dotenv
 
 from picamera2 import Picamera2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import PyavOutput, SplittableOutput
-from core.state import state
+
+from core.events import Event, EventType
 
 # ------------------ CONFIG ------------------
 load_dotenv()
@@ -29,79 +30,97 @@ picam2.configure(picam2.create_video_configuration(
 ))
 encoder = H264Encoder(bitrate=BITRATE)
 
-# ------------------ STATE & COMMANDS ------------------
-commands = queue.Queue()
-_started = False  # ensures loop thread only starts once
 
 # ------------------ PATH HELPERS ------------------
-def _segment_path(session_uuid, seg, tmp=True):
+def _segment_path(session_uuid: str, seg: int, tmp: bool = True) -> str:
+    """Generate path for segment file."""
     session_dir = os.path.join(SESSION_DIR, session_uuid)
     os.makedirs(session_dir, exist_ok=True)
-    filename = f"seg_{seg:04d}"
-    if tmp:
-        filename = f"_tmp_{filename}.mp4"  # valid container
-    else:
-        filename = f"{filename}.mp4"
+    filename = f"_tmp_seg_{seg:04d}.mp4" if tmp else f"seg_{seg:04d}.mp4"
     return os.path.join(session_dir, filename)
 
-# ------------------ SEGMENT HELPERS ------------------
-def _start_segment(splitter, session_uuid, seg):
-    """Start a new segment and split output."""
-    curr_path = _segment_path(session_uuid, seg, tmp=True)
-    final_path = _segment_path(session_uuid, seg, tmp=False)
-    splitter.split_output(PyavOutput(curr_path))
-    print(f"[RECORDER] Started segment {seg}")
-    return curr_path, final_path
 
-def _finalize_segment(curr_path, final_path, seg):
-    """Rename TMP segment to final .mp4 file."""
-    if os.path.exists(curr_path):
-        os.rename(curr_path, final_path)
-        print(f"[RECORDER] Finalized segment {seg} → {final_path}")
+def _finalize_segment(tmp_path: str, final_path: str, seg: int):
+    """Rename tmp segment to final path."""
+    if os.path.exists(tmp_path):
+        os.rename(tmp_path, final_path)
+        print(f"[RECORDER] Finalized segment {seg} -> {final_path}")
 
-# ------------------ MAIN RECORDING LOOP ------------------
-def _loop():
-    while True:
-        start_at, session_uuid = commands.get()
 
+# ------------------ WORKER ------------------
+def run_worker(
+    session_uuid: str,
+    start_at: int,
+    stop_signal: threading.Event,
+    event_queue: queue.Queue
+):
+    """
+    Recording worker thread.
+    
+    - Waits until start_at timestamp
+    - Records video, splitting into segments
+    - Emits SEGMENT_FINISHED events
+    - Emits RECORDING_STOPPED when done
+    - Does NOT modify state directly
+    """
+    try:
         # Wait until start time
-        now = int(time.time() * 1000)
-        if start_at > now:
-            time.sleep((start_at - now) / 1000)
+        now_ms = int(time.time() * 1000)
+        if start_at > now_ms:
+            wait_secs = (start_at - now_ms) / 1000
+            print(f"[RECORDER] Waiting {wait_secs:.1f}s until start")
+            time.sleep(wait_secs)
 
-        # Start recording
-        state.set_recording()
+        print(f"[RECORDER] Starting session {session_uuid}")
+
         seg = 0
+        tmp_path = _segment_path(session_uuid, seg, tmp=True)
+        final_path = _segment_path(session_uuid, seg, tmp=False)
 
-        splitter = SplittableOutput(output=PyavOutput(_segment_path(session_uuid, seg, tmp=True)))
+        splitter = SplittableOutput(output=PyavOutput(tmp_path))
         picam2.start_recording(encoder, splitter, name="main")
-        print(f"[RECORDER] Started session {session_uuid}")
 
-        curr_path, final_path = _start_segment(splitter, session_uuid, seg)
+        print(f"[RECORDER] Started segment {seg}")
 
-        # Recording loop, split segments every SEGMENT_SECS or until stop
-        while not state.wait_stop(timeout=SEGMENT_SECS):
-            _finalize_segment(curr_path, final_path, seg)
+        # Recording loop
+        while not stop_signal.wait(timeout=SEGMENT_SECS):
+            # Segment timeout reached, finalize and start new segment
+            _finalize_segment(tmp_path, final_path, seg)
+
+            # Emit segment finished event
+            event_queue.put(Event(
+                type=EventType.SEGMENT_FINISHED,
+                data={"segment": seg, "path": final_path, "uuid": session_uuid}
+            ))
+
             seg += 1
-            state.set_segment(seg)
-            curr_path, final_path = _start_segment(splitter, session_uuid, seg)
+            tmp_path = _segment_path(session_uuid, seg, tmp=True)
+            final_path = _segment_path(session_uuid, seg, tmp=False)
 
-        # Stop requested → cleanup
-        state.set_cleanup()
+            splitter.split_output(PyavOutput(tmp_path))
+            print(f"[RECORDER] Started segment {seg}")
+
+        # Stop signal received
+        print(f"[RECORDER] Stop signal received, cleaning up")
         picam2.stop_recording()
-        _finalize_segment(curr_path, final_path, seg)
-        state.set_idle()
-        print(f"[RECORDER] Stopped session {session_uuid}")
 
-# ------------------ API TO START / STOP ------------------
-def start(start_at_ms: int, session_uuid: str):
-    """Queue a recording session to start at a given timestamp."""
-    global _started
-    if not _started:
-        threading.Thread(target=_loop, daemon=True).start()
-        _started = True
-    commands.put((start_at_ms, session_uuid))
+        # Finalize last segment
+        _finalize_segment(tmp_path, final_path, seg)
 
-def stop():
-    """Signal the current recording to stop."""
-    state.stop_recording()
+        # Emit final segment finished
+        event_queue.put(Event(
+            type=EventType.SEGMENT_FINISHED,
+            data={"segment": seg, "path": final_path, "uuid": session_uuid}
+        ))
+
+        print(f"[RECORDER] Session {session_uuid} complete")
+
+    except Exception as e:
+        print(f"[RECORDER] Error: {e}")
+
+    finally:
+        # Always emit recording stopped
+        event_queue.put(Event(
+            type=EventType.RECORDING_STOPPED,
+            data={"uuid": session_uuid}
+        ))
