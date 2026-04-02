@@ -57,19 +57,27 @@ def run_worker(
     """
     Recording worker thread.
     
-    - Waits until start_at timestamp
+    - Waits until start_at timestamp (interruptible by stop signal)
     - Records video, splitting into segments
     - Emits SEGMENT_FINISHED events
     - Emits RECORDING_STOPPED when done
     - Does NOT modify state directly
     """
     try:
-        # Wait until start time
+        # Wait until start time (interruptible)
         now_ms = int(time.time() * 1000)
         if start_at > now_ms:
             wait_secs = (start_at - now_ms) / 1000
             print(f"[RECORDER] Waiting {wait_secs:.1f}s until start")
-            time.sleep(wait_secs)
+            # Use stop_signal.wait() instead of time.sleep() so we can be interrupted
+            if stop_signal.wait(timeout=wait_secs):
+                print(f"[RECORDER] Cancelled during wait")
+                return  # Stop signal received during wait, exit without recording
+
+        # Check again in case stop was called
+        if stop_signal.is_set():
+            print(f"[RECORDER] Stop requested before recording started")
+            return
 
         print(f"[RECORDER] Starting session {session_uuid}")
 
