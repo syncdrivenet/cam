@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from lib.logger import log
 from core.state import state
 from core.bootcheck import run_bootcheck
 from core import event_loop
@@ -17,29 +18,31 @@ BOOTCHECK_INTERVAL = int(os.getenv("BOOTCHECK_INTERVAL", 5))
 
 
 if __name__ == "__main__":
-    print(f"[NODE] {NODE_ID} starting...")
+    log("cam", f"Node {NODE_ID} starting", "INFO")
 
     # Run boot checks with retry
     while True:
-        print("[NODE] Running boot checks...")
+        log("cam", "Running boot checks", "INFO")
         checks = run_bootcheck()
 
+        failed = []
         for name, result in checks.items():
             status = "OK" if result["ok"] else "FAIL"
-            print(f"[NODE]   {name}: {status} - {result['msg']}")
+            print(f"  {name}: {status} - {result[msg]}")
+            if not result["ok"]:
+                failed.append(name)
 
-        if all(c["ok"] for c in checks.values()):
-            print("[NODE] Boot checks passed")
+        if not failed:
+            log("cam", "Boot checks passed", "INFO")
             break
 
-        print(f"[NODE] Retrying in {BOOTCHECK_INTERVAL}s...")
+        log("cam", f"Boot checks failed: {', '.join(failed)}", "WARN")
         time.sleep(BOOTCHECK_INTERVAL)
 
     # Start event loop thread
     event_loop.start()
-    print("[NODE] Event loop started")
+    log("cam", "Event loop started", "INFO")
 
     # Start HTTP server
-    print(f"[NODE] State: {state.get()['state']}")
-    print(f"[HTTP] Listening on :{HTTP_PORT}")
+    log("cam", f"HTTP server starting on :{HTTP_PORT}", "INFO")
     uvicorn.run(app, host="0.0.0.0", port=HTTP_PORT, log_level="warning")

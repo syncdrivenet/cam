@@ -3,11 +3,12 @@
 # -----------------------------
 # Node logging script for rsync
 # -----------------------------
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 source /home/pi/cam/.env  # MQTT_BROKER, MQTT_TOPIC_BASE, etc.
 
 # Ensure jq is installed: sudo apt install jq
 
-NODE_NAME="${NODE_NAME:-melb-01-cam-01}"   # unique node ID
+NODE_NAME="${CLIENT_ID:-melb-01-cam-01}"   # unique node ID
 COMPONENT="rsync"
 
 # Function to publish structured JSON to MQTT
