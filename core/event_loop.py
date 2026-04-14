@@ -3,6 +3,7 @@ import threading
 
 from core.events import Event, EventType
 from core.state import state
+from lib.logger import log
 
 # Global event queue - thread-safe FIFO
 event_queue: queue.Queue[Event] = queue.Queue()
@@ -17,7 +18,7 @@ def _handle_start_recording(event: Event):
     global _worker_stop_signal, _worker_thread
 
     if state.get()["state"] != "idle":
-        print(f"[EVENT_LOOP] Ignoring START_RECORDING: not idle")
+        log("recording", "Ignoring START_RECORDING: not idle", "WARN")
         return
 
     # Import here to avoid circular import
@@ -26,7 +27,7 @@ def _handle_start_recording(event: Event):
     session_uuid = event.data.get("uuid")
     start_at = event.data.get("start_at")
 
-    print(f"[EVENT_LOOP] Starting recording session {session_uuid}")
+    log("recording", f"Session starting: {session_uuid}", "INFO")
     state.set_recording()
 
     # Create stop signal for this worker
@@ -46,10 +47,10 @@ def _handle_stop_recording(event: Event):
     global _worker_stop_signal
 
     if state.get()["state"] != "recording":
-        print(f"[EVENT_LOOP] Ignoring STOP_RECORDING: not recording")
+        log("recording", "Ignoring STOP_RECORDING: not recording", "WARN")
         return
 
-    print(f"[EVENT_LOOP] Signaling worker to stop")
+    log("recording", "Stop signal sent", "INFO")
     if _worker_stop_signal:
         _worker_stop_signal.set()
 
@@ -57,7 +58,7 @@ def _handle_stop_recording(event: Event):
 def _handle_segment_finished(event: Event):
     """Handle SEGMENT_FINISHED event."""
     segment = event.data.get("segment", 0)
-    print(f"[EVENT_LOOP] Segment {segment} finished")
+    log("recording", f"Segment {segment} complete", "INFO")
     state.set_segment(segment)
 
 
@@ -66,7 +67,7 @@ def _handle_recording_stopped(event: Event):
     global _worker_stop_signal, _worker_thread
 
     session_uuid = event.data.get("uuid", "unknown")
-    print(f"[EVENT_LOOP] Recording stopped for session {session_uuid}")
+    log("recording", f"Session stopped: {session_uuid}", "INFO")
 
     state.set_cleanup()
     state.set_idle()
@@ -77,7 +78,7 @@ def _handle_recording_stopped(event: Event):
 
 def _loop():
     """Main event loop - single source of truth for state transitions."""
-    print("[EVENT_LOOP] Started")
+    log("recording", "Event loop started", "INFO")
 
     handlers = {
         EventType.START_RECORDING: _handle_start_recording,
@@ -94,10 +95,10 @@ def _loop():
             try:
                 handler(event)
             except Exception as e:
-                print(f"[EVENT_LOOP] Error handling {event.type}: {e}")
+                log("recording", f"Error handling {event.type}: {e}", "ERROR")
                 state.set_error(str(e))
         else:
-            print(f"[EVENT_LOOP] Unknown event type: {event.type}")
+            log("recording", f"Unknown event type: {event.type}", "WARN")
 
 
 def start():

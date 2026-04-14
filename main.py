@@ -28,7 +28,7 @@ if __name__ == "__main__":
         failed = []
         for name, result in checks.items():
             status = "OK" if result["ok"] else "FAIL"
-            print(f"  {name}: {status} - {result[msg]}")
+            print(f"  {name}: {status} - {result["msg"]}")
             if not result["ok"]:
                 failed.append(name)
 

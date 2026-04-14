@@ -98,7 +98,7 @@ def do_rsync():
                 ["rsync", "-a", "--stats", "--ignore-existing", 
                  "--remove-source-files", "--exclude=_tmp_*",
                  f"{SESSION_DIR}/", f"{SYNC_HOST}:{SYNC_DIR}"],
-                capture_output=True, text=True, timeout=300
+                capture_output=True, text=True, timeout=600
             )
             if result.returncode == 0:
                 files, size = parse_rsync_stats(result.stdout)

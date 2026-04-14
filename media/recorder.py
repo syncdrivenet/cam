@@ -9,6 +9,7 @@ from picamera2.encoders import H264Encoder
 from picamera2.outputs import PyavOutput, SplittableOutput
 
 from core.events import Event, EventType
+from lib.logger import log
 
 # ------------------ CONFIG ------------------
 load_dotenv()
@@ -44,7 +45,6 @@ def _finalize_segment(tmp_path: str, final_path: str, seg: int):
     """Rename tmp segment to final path."""
     if os.path.exists(tmp_path):
         os.rename(tmp_path, final_path)
-        print(f"[RECORDER] Finalized segment {seg} -> {final_path}")
 
 
 # ------------------ WORKER ------------------
@@ -56,30 +56,22 @@ def run_worker(
 ):
     """
     Recording worker thread.
-    
-    - Waits until start_at timestamp (interruptible by stop signal)
-    - Records video, splitting into segments
-    - Emits SEGMENT_FINISHED events
-    - Emits RECORDING_STOPPED when done
-    - Does NOT modify state directly
     """
     try:
         # Wait until start time (interruptible)
         now_ms = int(time.time() * 1000)
         if start_at > now_ms:
             wait_secs = (start_at - now_ms) / 1000
-            print(f"[RECORDER] Waiting {wait_secs:.1f}s until start")
-            # Use stop_signal.wait() instead of time.sleep() so we can be interrupted
+            log("recording", f"Waiting {wait_secs:.1f}s until start", "INFO")
             if stop_signal.wait(timeout=wait_secs):
-                print(f"[RECORDER] Cancelled during wait")
-                return  # Stop signal received during wait, exit without recording
+                log("recording", "Cancelled during wait", "WARN")
+                return
 
-        # Check again in case stop was called
         if stop_signal.is_set():
-            print(f"[RECORDER] Stop requested before recording started")
+            log("recording", "Stop requested before start", "WARN")
             return
 
-        print(f"[RECORDER] Starting session {session_uuid}")
+        log("recording", f"Recording started: {session_uuid}", "INFO")
 
         seg = 0
         tmp_path = _segment_path(session_uuid, seg, tmp=True)
@@ -88,14 +80,12 @@ def run_worker(
         splitter = SplittableOutput(output=PyavOutput(tmp_path))
         picam2.start_recording(encoder, splitter, name="main")
 
-        print(f"[RECORDER] Started segment {seg}")
+        log("recording", f"Segment {seg} started", "INFO")
 
         # Recording loop
         while not stop_signal.wait(timeout=SEGMENT_SECS):
-            # Segment timeout reached, finalize and start new segment
             _finalize_segment(tmp_path, final_path, seg)
 
-            # Emit segment finished event
             event_queue.put(Event(
                 type=EventType.SEGMENT_FINISHED,
                 data={"segment": seg, "path": final_path, "uuid": session_uuid}
@@ -106,28 +96,25 @@ def run_worker(
             final_path = _segment_path(session_uuid, seg, tmp=False)
 
             splitter.split_output(PyavOutput(tmp_path))
-            print(f"[RECORDER] Started segment {seg}")
+            log("recording", f"Segment {seg} started", "INFO")
 
         # Stop signal received
-        print(f"[RECORDER] Stop signal received, cleaning up")
+        log("recording", "Stopping recording", "INFO")
         picam2.stop_recording()
 
-        # Finalize last segment
         _finalize_segment(tmp_path, final_path, seg)
 
-        # Emit final segment finished
         event_queue.put(Event(
             type=EventType.SEGMENT_FINISHED,
             data={"segment": seg, "path": final_path, "uuid": session_uuid}
         ))
 
-        print(f"[RECORDER] Session {session_uuid} complete")
+        log("recording", f"Session complete: {session_uuid} ({seg+1} segments)", "INFO")
 
     except Exception as e:
-        print(f"[RECORDER] Error: {e}")
+        log("recording", f"Error: {e}", "ERROR")
 
     finally:
-        # Always emit recording stopped
         event_queue.put(Event(
             type=EventType.RECORDING_STOPPED,
             data={"uuid": session_uuid}

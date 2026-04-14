@@ -51,6 +51,7 @@ def status():
             "cpu": psutil.cpu_percent(interval=0.5),
             "ram": psutil.virtual_memory().percent,
             "disk_free_gb": round(shutil.disk_usage("/").free / (1024**3), 2),
+            "temp": round(int(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000, 1),
         }
     })
 
