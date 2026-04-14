@@ -11,7 +11,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lib.logger import log, _config
+from lib.logger import log, metric, _config
 
 SESSION_DIR = _config.get("SESSION_DIR", "/home/pi/recordings")
 SYNC_HOST = _config.get("SYNC_TARGET_HOST", "")
@@ -59,7 +59,7 @@ def health_loop():
                 level = "ERROR"
             elif temp >= 65 or mem >= 80 or disk >= 80:
                 level = "WARN"
-            log("health", f"cpu={cpu:.0f}% | temp={temp:.1f}C | mem={mem:.1f}% | disk={disk:.1f}% | load={load}", level)
+            metric(cpu, temp, mem, disk, float(load))
         except Exception as e:
             log("health", f"Error: {e}", "ERROR")
         time.sleep(5)

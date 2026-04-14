@@ -17,25 +17,41 @@ if _env_file.exists():
 
 NODE = _config.get("CLIENT_ID", "unknown")
 MQTT_BROKER = _config.get("MQTT_BROKER", "localhost")
-MQTT_TOPIC_BASE = _config.get("MQTT_TOPIC_BASE", f"logging/{NODE}/")
 
 
-def log(component: str, message: str, level: str = "INFO"):
-    """Send structured log via MQTT."""
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    payload = json.dumps({
-        "ts": ts,
-        "node": NODE,
-        "component": component,
-        "level": level,
-        "message": message
-    })
-    topic = f"{MQTT_TOPIC_BASE}{component}"
+def _publish(topic: str, payload: dict):
+    """Publish JSON payload to MQTT topic."""
     try:
         subprocess.run(
-            ["mosquitto_pub", "-h", MQTT_BROKER, "-t", topic, "-m", payload],
+            ["mosquitto_pub", "-h", MQTT_BROKER, "-t", topic, "-m", json.dumps(payload)],
             timeout=5, capture_output=True
         )
     except Exception as e:
         print(f"[MQTT ERROR] {e}")
+
+
+def log(component: str, message: str, level: str = "INFO"):
+    """Send app log to logging/{node} topic."""
+    payload = {
+        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "node": NODE,
+        "component": component,
+        "level": level,
+        "message": message
+    }
+    _publish(f"logging/{NODE}", payload)
     print(f"[{level}] {component}: {message}")
+
+
+def metric(cpu: float, temp: float, mem: float, disk: float, load: float):
+    """Send health metrics to metrics/{node} topic."""
+    payload = {
+        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "node": NODE,
+        "cpu": cpu,
+        "temp": temp,
+        "mem": mem,
+        "disk": disk,
+        "load": load
+    }
+    _publish(f"metrics/{NODE}", payload)
