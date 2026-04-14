@@ -108,8 +108,6 @@ class SyncManager:
                     self._status.segments_synced += 1
                     self._status.last_sync_ts = int(time.time() * 1000)
                     self._status.last_error = None
-            self._status.status = "idle"
-            self._status.current_segment = None
                     
                 # Remove local file after successful sync
                 try:
