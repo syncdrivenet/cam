@@ -1,9 +1,12 @@
+"""Central event loop - single source of truth for state transitions."""
+
 import queue
 import threading
 
 from core.events import Event, EventType
 from core.state import state
 from lib.logger import log
+from media.sync import sync_manager
 
 # Global event queue - thread-safe FIFO
 event_queue: queue.Queue[Event] = queue.Queue()
@@ -18,7 +21,7 @@ def _handle_start_recording(event: Event):
     global _worker_stop_signal, _worker_thread
 
     if state.get()["state"] != "idle":
-        log("recording", "Ignoring START_RECORDING: not idle", "WARN")
+        log("event", "Ignoring START_RECORDING: not idle", "WARN")
         return
 
     # Import here to avoid circular import
@@ -27,8 +30,12 @@ def _handle_start_recording(event: Event):
     session_uuid = event.data.get("uuid")
     start_at = event.data.get("start_at")
 
-    log("recording", f"Session starting: {session_uuid}", "INFO")
+    log("event", f"Session starting: {session_uuid}", "INFO")
     state.set_recording()
+
+    # Reset and start sync manager
+    sync_manager.reset()
+    sync_manager.start()
 
     # Create stop signal for this worker
     _worker_stop_signal = threading.Event()
@@ -47,19 +54,26 @@ def _handle_stop_recording(event: Event):
     global _worker_stop_signal
 
     if state.get()["state"] != "recording":
-        log("recording", "Ignoring STOP_RECORDING: not recording", "WARN")
+        log("event", "Ignoring STOP_RECORDING: not recording", "WARN")
         return
 
-    log("recording", "Stop signal sent", "INFO")
+    log("event", "Stop signal sent", "INFO")
     if _worker_stop_signal:
         _worker_stop_signal.set()
 
 
 def _handle_segment_finished(event: Event):
-    """Handle SEGMENT_FINISHED event."""
+    """Handle SEGMENT_FINISHED event - update state and queue for sync."""
     segment = event.data.get("segment", 0)
-    log("recording", f"Segment {segment} complete", "INFO")
+    seg_path = event.data.get("path")
+    uuid = event.data.get("uuid")
+
+    log("event", f"Segment {segment} complete: {seg_path}", "INFO")
     state.set_segment(segment)
+
+    # Queue segment for rsync
+    if seg_path and uuid:
+        sync_manager.queue_segment(seg_path, uuid)
 
 
 def _handle_recording_stopped(event: Event):
@@ -67,9 +81,13 @@ def _handle_recording_stopped(event: Event):
     global _worker_stop_signal, _worker_thread
 
     session_uuid = event.data.get("uuid", "unknown")
-    log("recording", f"Session stopped: {session_uuid}", "INFO")
+    log("event", f"Session stopped: {session_uuid}", "INFO")
 
     state.set_cleanup()
+
+    # Stop sync manager (will drain queue)
+    sync_manager.stop()
+
     state.set_idle()
 
     _worker_stop_signal = None
@@ -78,7 +96,7 @@ def _handle_recording_stopped(event: Event):
 
 def _loop():
     """Main event loop - single source of truth for state transitions."""
-    log("recording", "Event loop started", "INFO")
+    log("event", "Event loop started", "INFO")
 
     handlers = {
         EventType.START_RECORDING: _handle_start_recording,
@@ -95,10 +113,10 @@ def _loop():
             try:
                 handler(event)
             except Exception as e:
-                log("recording", f"Error handling {event.type}: {e}", "ERROR")
+                log("event", f"Error handling {event.type}: {e}", "ERROR")
                 state.set_error(str(e))
         else:
-            log("recording", f"Unknown event type: {event.type}", "WARN")
+            log("event", f"Unknown event type: {event.type}", "WARN")
 
 
 def start():

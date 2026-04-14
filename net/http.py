@@ -1,3 +1,5 @@
+"""HTTP API endpoints for camera node."""
+
 import os
 import socket
 import shutil
@@ -10,6 +12,7 @@ from core.state import state
 from core.preflight import run_preflight
 from core.events import Event, EventType
 from core.event_loop import event_queue
+from media.sync import sync_manager
 
 NODE_ID = os.getenv("CLIENT_ID", socket.gethostname())
 
@@ -42,16 +45,25 @@ def fail(error: str) -> dict:
     return response(False, error=error)
 
 
+def _get_temp() -> float:
+    """Get CPU temperature."""
+    try:
+        return round(int(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000, 1)
+    except Exception:
+        return 0.0
+
+
 # ------------------ ENDPOINTS ------------------
 @app.get("/status")
 def status():
     return ok({
         **state.get(),
+        "sync": sync_manager.get_status(),
         "system": {
             "cpu": psutil.cpu_percent(interval=0.5),
             "ram": psutil.virtual_memory().percent,
             "disk_free_gb": round(shutil.disk_usage("/").free / (1024**3), 2),
-            "temp": round(int(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000, 1),
+            "temp": _get_temp(),
         }
     })
 
