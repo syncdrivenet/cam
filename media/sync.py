@@ -108,6 +108,8 @@ class SyncManager:
                     self._status.segments_synced += 1
                     self._status.last_sync_ts = int(time.time() * 1000)
                     self._status.last_error = None
+            self._status.status = "idle"
+            self._status.current_segment = None
                     
                 # Remove local file after successful sync
                 try:
@@ -153,6 +155,8 @@ class SyncManager:
             self._status.segments_synced = 0
             self._status.current_uuid = None
             self._status.last_error = None
+            self._status.status = "idle"
+            self._status.current_segment = None
 
 
 # Singleton instance
