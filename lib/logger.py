@@ -17,6 +17,7 @@ if _env_file.exists():
 
 NODE = _config.get("CLIENT_ID", "unknown")
 MQTT_BROKER = _config.get("MQTT_BROKER", "localhost")
+MQTT_TOPIC_BASE = _config.get("MQTT_TOPIC_BASE", f"logging/{NODE}/")
 
 
 def _publish(topic: str, payload: dict):
@@ -31,29 +32,35 @@ def _publish(topic: str, payload: dict):
 
 
 def log(component: str, message: str, level: str = "INFO"):
-    """Send app log to logging/{node} topic."""
+    """Send structured log via MQTT."""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     payload = {
-        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "ts": ts,
         "node": NODE,
-        "level": level,
         "component": component,
+        "level": level,
         "message": message
     }
-    _publish(f"logging/{NODE}", payload)
+    topic = f"logging/{NODE}"
+    _publish(topic, payload)
     print(f"[{level}] {component}: {message}")
 
 
 def metric(cpu: float, temp: float, mem: float, disk: float, load: float):
-    """Send health metrics to logging/{node} topic with level=METRICS."""
+    """Send health metrics via MQTT with level=METRICS for Grafana filtering."""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     payload = {
-        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "ts": ts,
         "node": NODE,
         "level": "METRICS",
         "component": "health",
-        "cpu": cpu,
-        "temp": temp,
-        "mem": mem,
-        "disk": disk,
-        "load": load
+        "cpu": round(cpu, 1),
+        "temp": round(temp, 1),
+        "mem": round(mem, 1),
+        "disk": round(disk, 1),
+        "load": float(load),
+        "message": f"cpu={cpu:.1f}% temp={temp:.1f}C mem={mem:.1f}% disk={disk:.1f}% load={load:.2f}"
     }
-    _publish(f"logging/{NODE}", payload)
+    topic = f"logging/{NODE}"
+    _publish(topic, payload)
+    print(f"[METRICS] cpu={cpu:.0f}% temp={temp:.1f}C mem={mem:.1f}% disk={disk:.1f}%")
