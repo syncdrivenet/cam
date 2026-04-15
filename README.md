@@ -76,11 +76,14 @@ Example metrics payload:
 {
   "ts": "2026-04-14T05:00:00.000Z",
   "node": "melb-01-cam-01",
+  "level": "METRICS",
+  "component": "health",
   "cpu": 25.5,
   "temp": 52.3,
   "mem": 45.2,
   "disk": 15.5,
-  "load": 1.2
+  "load": 1.2,
+  "message": "cpu=25.5% temp=52.3C mem=45.2% disk=15.5% load=1.20"
 }
 ```
 
