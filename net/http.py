@@ -1,6 +1,7 @@
 """HTTP API endpoints for camera node."""
 
 import os
+import glob
 import socket
 import shutil
 import time
@@ -12,9 +13,9 @@ from core.state import state
 from core.preflight import run_preflight
 from core.events import Event, EventType
 from core.event_loop import event_queue
-from media.sync import sync_manager
 
 NODE_ID = os.getenv("CLIENT_ID", socket.gethostname())
+SESSION_DIR = os.getenv("SESSION_DIR", "/home/pi/recordings")
 
 app = FastAPI(title="Camera Node")
 
@@ -53,12 +54,34 @@ def _get_temp() -> float:
         return 0.0
 
 
+def _get_sync_status() -> dict:
+    """Get sync status by scanning disk (no queue state)."""
+    # Count pending segments (completed files not yet synced)
+    pending = len(glob.glob(f"{SESSION_DIR}/**/seg_*.mp4", recursive=True))
+    
+    # Check if rsync is currently running
+    is_syncing = False
+    try:
+        result = os.popen("pgrep -x rsync").read().strip()
+        is_syncing = len(result) > 0
+    except:
+        pass
+    
+    return {
+        "status": "syncing" if is_syncing else "idle",
+        "segments_synced": 0,  # Not tracked locally, use segments_on_ctlr from controller
+        "segments_queued": pending,
+        "last_sync": None,
+        "error": None,
+    }
+
+
 # ------------------ ENDPOINTS ------------------
 @app.get("/status")
 def status():
     return ok({
         **state.get(),
-        "sync": sync_manager.get_status(),
+        "sync": _get_sync_status(),
         "system": {
             "cpu": psutil.cpu_percent(interval=0.5),
             "ram": psutil.virtual_memory().percent,

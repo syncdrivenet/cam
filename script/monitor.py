@@ -11,11 +11,11 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lib.logger import log, metric, _config
+from lib.logger import log, metric, _config, NODE
 
 SESSION_DIR = _config.get("SESSION_DIR", "/home/pi/recordings")
 SYNC_HOST = _config.get("SYNC_TARGET_HOST", "")
-SYNC_DIR = _config.get("SYNC_TARGET_DIR", "")
+SYNC_MODULE = _config.get("SYNC_MODULE", "logging")
 
 
 def get_health():
@@ -88,16 +88,19 @@ def parse_rsync_stats(output):
 
 
 def do_rsync():
-    """Run rsync with retries."""
-    if not SYNC_HOST or not SYNC_DIR:
+    """Run rsync to daemon with retries."""
+    if not SYNC_HOST:
         return False, "Sync not configured", 0, "0B"
+    
+    # Use rsync daemon protocol: rsync://host/module/node/
+    target = f"rsync://{SYNC_HOST}/{SYNC_MODULE}/{NODE}/"
     
     for attempt in range(3):
         try:
             result = subprocess.run(
-                ["rsync", "-a", "--stats", "--ignore-existing", 
+                ["rsync", "-av", "--stats", 
                  "--remove-source-files", "--exclude=_tmp_*",
-                 f"{SESSION_DIR}/", f"{SYNC_HOST}:{SYNC_DIR}"],
+                 f"{SESSION_DIR}/", target],
                 capture_output=True, text=True, timeout=600
             )
             if result.returncode == 0:
@@ -132,7 +135,6 @@ def rsync_loop():
 
 
 if __name__ == "__main__":
-    from lib.logger import NODE
     print(f"Starting monitor for {NODE}")
     threading.Thread(target=health_loop, daemon=True).start()
     rsync_loop()

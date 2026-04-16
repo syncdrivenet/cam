@@ -6,7 +6,6 @@ import threading
 from core.events import Event, EventType
 from core.state import state
 from lib.logger import log
-from media.sync import sync_manager
 
 # Global event queue - thread-safe FIFO
 event_queue: queue.Queue[Event] = queue.Queue()
@@ -32,10 +31,6 @@ def _handle_start_recording(event: Event):
 
     log("event", f"Session starting: {session_uuid}", "INFO")
     state.set_recording()
-
-    # Reset and start sync manager
-    sync_manager.reset()
-    sync_manager.start()
 
     # Create stop signal for this worker
     _worker_stop_signal = threading.Event()
@@ -63,17 +58,13 @@ def _handle_stop_recording(event: Event):
 
 
 def _handle_segment_finished(event: Event):
-    """Handle SEGMENT_FINISHED event - update state and queue for sync."""
+    """Handle SEGMENT_FINISHED event - update state."""
     segment = event.data.get("segment", 0)
     seg_path = event.data.get("path")
-    uuid = event.data.get("uuid")
 
     log("event", f"Segment {segment} complete: {seg_path}", "INFO")
     state.set_segment(segment)
-
-    # Queue segment for rsync
-    if seg_path and uuid:
-        sync_manager.queue_segment(seg_path, uuid)
+    # Sync handled by cam-monitor.service (periodic rsync)
 
 
 def _handle_recording_stopped(event: Event):
@@ -84,10 +75,6 @@ def _handle_recording_stopped(event: Event):
     log("event", f"Session stopped: {session_uuid}", "INFO")
 
     state.set_cleanup()
-
-    # Stop sync manager (will drain queue)
-    sync_manager.stop()
-
     state.set_idle()
 
     _worker_stop_signal = None
