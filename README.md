@@ -2,6 +2,15 @@
 
 Raspberry Pi camera node for synchronized multi-camera recording with rsync status tracking.
 
+## Quick Start
+
+```bash
+# On a fresh Raspberry Pi:
+git clone git@github.com:syncdrivenet/cam.git
+cd cam
+./setup.sh melb-01-cam-XX
+```
+
 ## Architecture
 
 ```
@@ -132,6 +141,7 @@ Each node has its own `.env` (not tracked in git):
 
 ```bash
 CLIENT_ID=melb-01-cam-01
+HTTP_PORT=8080
 
 # Recording
 SESSION_DIR=/home/pi/recordings
@@ -141,14 +151,17 @@ RECORD_HEIGHT=720
 RECORD_FPS=30
 SEGMENT_SECS=120
 
-# Sync
+# Sync (rsync daemon mode - no SSH keys needed)
 SYNC_ENABLED=true
-SYNC_TARGET_HOST=pi@melb-01-ctlr
-SYNC_TARGET_DIR=/mnt/logging
+SYNC_TARGET_HOST=melb-01-ctlr
+SYNC_MODULE=logging
 
 # MQTT
-MQTT_BROKER=192.168.8.145
+MQTT_BROKER=melb-01-ctlr
 MQTT_TOPIC_BASE=logging/melb-01-cam-01/
+
+# Device
+DEVICE=/dev/video0
 ```
 
 ## Services
@@ -193,12 +206,123 @@ The sync manager:
 
 ## Setup New Camera Node
 
-1. Clone repo: `git clone git@github.com:syncdrivenet/cam.git`
-2. Create venv: `python -m venv .venv --system-site-packages`
-3. Install deps: `.venv/bin/pip install -r requirements.txt`
-4. Create `.env` with correct CLIENT_ID and MQTT_TOPIC_BASE
-5. Add ctlr SSH key: `ssh-keyscan -H melb-01-ctlr >> ~/.ssh/known_hosts`
-6. Generate SSH key: `ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa`
-7. Add pubkey to ctlr: copy `~/.ssh/id_rsa.pub` to ctlr `~/.ssh/authorized_keys`
-8. Create systemd services (cam.service, cam-monitor.service)
-9. Add node to ctlr config.py NODES list
+### Automated Setup (Recommended)
+
+```bash
+git clone git@github.com:syncdrivenet/cam.git
+cd cam
+./setup.sh melb-01-cam-XX
+```
+
+The `setup.sh` script handles:
+- System packages (git, python3-dev, python3-picamera2)
+- Python venv with dependencies
+- Systemd services (cam, cam-monitor)
+- Generates `.env` configuration
+
+### Manual Setup
+
+```bash
+# 1. Install system packages
+sudo apt update
+sudo apt install -y git python3-dev python3-picamera2 python3-venv
+
+# 2. Clone and setup
+git clone git@github.com:syncdrivenet/cam.git
+cd cam
+python3 -m venv .venv --system-site-packages
+.venv/bin/pip install -r requirements.txt
+
+# 3. Configure
+nano .env  # Set CLIENT_ID, MQTT_BROKER, etc.
+
+# 4. Create directories
+mkdir -p ~/recordings
+
+# 5. Install services (see setup.sh for service file contents)
+sudo systemctl daemon-reload
+sudo systemctl enable cam cam-monitor
+sudo systemctl start cam cam-monitor
+```
+
+### Controller Setup (rsyncd)
+
+Camera nodes sync using rsync daemon (no SSH keys needed).
+
+On the controller (`melb-01-ctlr`):
+
+```bash
+# 1. Create /etc/rsyncd.conf
+sudo tee /etc/rsyncd.conf << 'EOF'
+[logging]
+    path = /mnt/logging
+    read only = false
+    uid = pi
+    gid = pi
+EOF
+
+# 2. Enable rsync daemon
+sudo systemctl enable --now rsync
+```
+
+## Preventing SD Card Corruption
+
+### 1. Read-Only Root Filesystem (Recommended)
+
+```bash
+sudo raspi-config
+# Advanced Options -> Overlay FS -> Enable
+```
+
+To make changes, disable overlay temporarily, reboot, make changes, re-enable.
+
+### 2. Safe Git Operations
+
+```bash
+# Always pull with rebase
+git pull --rebase
+
+# If corruption occurs, reset to remote:
+rm -rf ~/cam
+git clone git@github.com:syncdrivenet/cam.git
+./setup.sh $(hostname)
+```
+
+### 3. Graceful Shutdown
+
+```bash
+sudo shutdown now
+```
+
+### 4. Quality SD Card
+
+Use industrial/endurance-rated SD cards (SanDisk Max Endurance, Samsung PRO Endurance).
+
+### 5. Watchdog Timer
+
+```bash
+# /boot/firmware/config.txt
+dtparam=watchdog=on
+
+# /etc/systemd/system.conf
+RuntimeWatchdogSec=10
+```
+
+## Troubleshooting
+
+### Service won't start
+```bash
+journalctl -u cam -n 50
+/home/pi/cam/.venv/bin/python -c "import picamera2"
+```
+
+### Rsync failing
+```bash
+rsync rsync://melb-01-ctlr/logging/  # Test connection
+ssh melb-01-ctlr "sudo systemctl status rsync"
+```
+
+### Camera not detected
+```bash
+libcamera-hello --list-cameras
+```

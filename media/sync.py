@@ -13,8 +13,8 @@ from lib.logger import log
 load_dotenv()
 
 SYNC_ENABLED = os.getenv("SYNC_ENABLED", "true").lower() == "true"
-SYNC_TARGET_HOST = os.getenv("SYNC_TARGET_HOST", "pi@melb-01-ctlr")
-SYNC_TARGET_DIR = os.getenv("SYNC_TARGET_DIR", "/mnt/logging")
+SYNC_TARGET_HOST = os.getenv("SYNC_TARGET_HOST", "melb-01-ctlr")
+SYNC_MODULE = os.getenv("SYNC_MODULE", "logging")
 
 
 @dataclass
@@ -93,13 +93,12 @@ class SyncManager:
 
             log("sync", f"Syncing: {seg_name}", "INFO")
 
-            # Build target path: /mnt/logging/{node_id}/{uuid}/
-            target_dir = f"{SYNC_TARGET_HOST}:{SYNC_TARGET_DIR}/{self._node_id}/{uuid}/"
-            
+            # Build target URL using rsync daemon: rsync://host/module/node_id/uuid/
+            target_url = f"rsync://{SYNC_TARGET_HOST}/{SYNC_MODULE}/{self._node_id}/{uuid}/"
+
             ret = os.system(
                 f"rsync -avz --checksum --timeout=60 "
-                f"--rsync-path='mkdir -p {SYNC_TARGET_DIR}/{self._node_id}/{uuid} && rsync' "
-                f"{seg_path} {target_dir} 2>/dev/null"
+                f"{seg_path} {target_url} 2>/dev/null"
             )
 
             if ret == 0:
@@ -140,7 +139,7 @@ class SyncManager:
         self._running = True
         self._thread = threading.Thread(target=self._sync_loop, daemon=True)
         self._thread.start()
-        log("sync", f"Started (target: {SYNC_TARGET_HOST}:{SYNC_TARGET_DIR})", "INFO")
+        log("sync", f"Started (target: rsync://{SYNC_TARGET_HOST}/{SYNC_MODULE})", "INFO")
 
     def stop(self):
         """Stop the sync manager (waits for queue to drain)."""
