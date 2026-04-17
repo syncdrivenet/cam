@@ -3,9 +3,12 @@
 
 import os
 import re
+import glob
+import json
 import subprocess
 import time
 import threading
+import urllib.request
 from pathlib import Path
 
 import sys
@@ -87,6 +90,33 @@ def parse_rsync_stats(output):
     return files, size
 
 
+def count_remaining():
+    """Count seg_*.mp4 files waiting to sync."""
+    return len(glob.glob(f"{SESSION_DIR}/**/seg_*.mp4", recursive=True))
+
+
+def report_sync(status: str, files: int = 0, remaining: int = 0):
+    """Report sync status to controller."""
+    if not SYNC_HOST:
+        return
+    try:
+        data = json.dumps({
+            "camera": NODE,
+            "status": status,
+            "files": files,
+            "remaining": remaining
+        }).encode()
+        req = urllib.request.Request(
+            f"http://{SYNC_HOST}:8000/api/sync/report",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        log("rsync", f"Failed to report sync status: {e}", "WARN")
+
+
 def do_rsync():
     """Run rsync to daemon with retries."""
     if not SYNC_HOST:
@@ -120,10 +150,16 @@ def rsync_loop():
     time.sleep(10)
     while True:
         try:
+            remaining = count_remaining()
+            report_sync("syncing", remaining=remaining)
+            
             log("rsync", "Started", "INFO")
             start = time.time()
             ok, msg, files, size = do_rsync()
             duration = int(time.time() - start)
+            
+            remaining = count_remaining()
+            report_sync("ok" if ok else "error", files=files, remaining=remaining)
             
             if ok:
                 log("rsync", f"Completed in {duration}s | {files} files | {size}", "INFO")
