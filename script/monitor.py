@@ -146,7 +146,7 @@ def do_rsync():
 
 
 def rsync_loop():
-    """Run rsync every 2 minutes."""
+    """Run rsync every 1 minute."""
     time.sleep(10)
     while True:
         try:
@@ -167,7 +167,7 @@ def rsync_loop():
                 log("rsync", f"Failed after {duration}s: {msg}", "ERROR")
         except Exception as e:
             log("rsync", f"Error: {e}", "ERROR")
-        time.sleep(120)
+        time.sleep(60)
 
 
 if __name__ == "__main__":
