@@ -57,21 +57,24 @@ def run_worker(
     """
     Recording worker thread.
     """
+    short_uuid = session_uuid[:8]
     try:
+        log("recording", f"Starting session: {short_uuid}...", "INFO")
+
         # Wait until start time (interruptible)
         now_ms = int(time.time() * 1000)
         if start_at > now_ms:
             wait_secs = (start_at - now_ms) / 1000
-            log("recording", f"Waiting {wait_secs:.1f}s until start", "INFO")
+            log("recording", f"Waiting {wait_secs:.1f}s for sync start", "INFO")
             if stop_signal.wait(timeout=wait_secs):
-                log("recording", "Cancelled during wait", "WARN")
+                log("recording", f"Cancelled during wait: {short_uuid}", "WARN")
                 return
 
         if stop_signal.is_set():
-            log("recording", "Stop requested before start", "WARN")
+            log("recording", f"Stop requested before start: {short_uuid}", "WARN")
             return
 
-        log("recording", f"Recording started: {session_uuid}", "INFO")
+        log("recording", f"Recording started: {short_uuid}", "INFO")
 
         seg = 0
         tmp_path = _segment_path(session_uuid, seg, tmp=True)
@@ -99,7 +102,7 @@ def run_worker(
             log("recording", f"Segment {seg} started", "INFO")
 
         # Stop signal received
-        log("recording", "Stopping recording", "INFO")
+        log("recording", f"Stopping recording: {short_uuid}", "INFO")
         picam2.stop_recording()
 
         _finalize_segment(tmp_path, final_path, seg)
@@ -109,7 +112,7 @@ def run_worker(
             data={"segment": seg, "path": final_path, "uuid": session_uuid}
         ))
 
-        log("recording", f"Session complete: {session_uuid} ({seg+1} segments)", "INFO")
+        log("recording", f"Session complete: {short_uuid} ({seg+1} segments)", "INFO")
 
     except Exception as e:
         log("recording", f"Error: {e}", "ERROR")

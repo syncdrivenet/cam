@@ -96,6 +96,22 @@ Example metrics payload:
 }
 ```
 
+### Recording Logs
+
+| Log Message | Description |
+|-------------|-------------|
+| `Starting session: {uuid}...` | Session received, preparing to record |
+| `Waiting {N}s for sync start` | Waiting for synchronized start time |
+| `Recording started: {uuid} (drift: +Nms)` | Recording began, drift shows sync accuracy |
+| `Segment N started` | New segment file opened |
+| `Stopping recording: {uuid}` | Stop command received |
+| `Session complete: {uuid} (N segments)` | Recording finished |
+
+**Drift** indicates how close the camera started to the target time:
+- `drift: +3ms` = started 3ms late
+- `drift: -5ms` = started 5ms early
+- Good sync: within +/-50ms
+
 Example log payload:
 ```json
 {
